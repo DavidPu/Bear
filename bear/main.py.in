@@ -49,6 +49,7 @@ import tempfile
 import shutil
 import contextlib
 import logging
+from multiprocessing.dummy import Pool as ThreadPool
 
 # Map of ignored compiler option for the creation of a compilation database.
 # This map is used in _split_command method, which classifies the parameters
@@ -177,6 +178,24 @@ def shell_split(string):
     return [unescape(token) for token in shlex.split(string)]
 
 
+execve = re.compile(r'(\d+) execve\("([^\"]+)", \[([^\[]+)\], \[([^\[]+)\]\) = 0')
+pwd = re.compile(r'"PWD=([^\"]+)"')
+quoted_str = re.compile(r'"([^\"]+)"')
+
+
+def write_json_file(args):
+    line = args[0]
+    pdir = args[1]
+    m = execve.findall(line)
+    if m:
+        cwd = pwd.findall(line)
+        entry = {'pid': int(m[0][0]),
+                 'cmd': quoted_str.findall(m[0][2]), 'cwd': cwd[0]}
+        fd, name = tempfile.mkstemp(prefix='execution.', dir=pdir, text=True)
+        os.write(fd, json.dumps(entry))
+        os.close(fd)
+
+
 def run_build(command, *args, **kwargs):
     # type: (...) -> int
     """ Run and report build command execution
@@ -186,7 +205,17 @@ def run_build(command, *args, **kwargs):
     """
     environment = kwargs.get('env', os.environ)
     logging.debug('run build %s, in environment: %s', command, environment)
+    cmd = "strace -v -s 65535 -e trace=execve -f -o {log}"
+    pdir = environment['INTERCEPT_BUILD_TARGET_DIR']
+    log = os.path.join(pdir, 'build.log')
+    cmd = cmd.format(log=log)
+    command = cmd.split(' ') + command
+    logging.debug('run build %s, in environment: %s', command, environment)
     exit_code = subprocess.call(command, *args, **kwargs)
+    pool = ThreadPool(4)
+    pool.map(write_json_file, ((l, pdir) for l in open(log)))
+    pool.close()
+    pool.join()
     logging.debug('build finished with exit code: %d', exit_code)
     return exit_code
 
@@ -358,7 +387,8 @@ def setup_environment(args, destination):
             'DYLD_FORCE_FLAT_NAMESPACE': '1'
         })
     else:
-        environment.update({'LD_PRELOAD': args.libear})
+        # environment.update({'LD_PRELOAD': args.libear})
+        pass
 
     return environment
 
