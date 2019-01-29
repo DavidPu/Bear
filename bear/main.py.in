@@ -178,7 +178,7 @@ def shell_split(string):
     return [unescape(token) for token in shlex.split(string)]
 
 
-execve = re.compile(r'(\d+) execve\("([^\"]+)", \[([^\[]+)\], \[([^\[]+)\]\) = 0')
+execve = re.compile(r'(\d+)\s+execve\("([^\"]+)", \[([^\[]+)\], \[([^\[]+)\]\) = 0')
 pwd = re.compile(r'"PWD=([^\"]+)"')
 quoted_str = re.compile(r'"([^\"]+)"')
 
